@@ -20,9 +20,9 @@ import kotlin.math.min
  * Lienzo de una página. Decide qué toques son el lápiz con cuatro reglas:
  *  1. Tamaño: un contacto que supera el umbral (en la medida calibrada) es palma.
  *     Si un trazo empieza pequeño y crece, se deshace.
- *  2. Un solo trazo a la vez: con un trazo activo, los demás contactos no dibujan.
- *     Excepción: si en los primeros 200 ms aparece otro contacto más hacia el lado
- *     de la punta, el primero era el borde de la mano y se cambia al nuevo.
+ *  2. Un solo trazo a la vez. Si el trazo activo está quieto (un trozo de palma que
+ *     no llegó al umbral) y otro contacto más hacia el lado de la punta aparece o
+ *     empieza a moverse, se entiende que el nuevo es el lápiz y se cambia a él.
  *  3. Zona de la mano: con una palma apoyada (o recién levantada) se ignoran los
  *     toques pegados a ella o en el lado donde queda la mano.
  *  4. Borde de entrada: si un trazo empezó hace menos de 200 ms justo en el
@@ -88,6 +88,8 @@ class NoteView(context: Context, private val prefs: Prefs) : View(context) {
         var lastT = t0
         var ink = false
         var palm = false
+        var travel = 0f          // distancia máxima recorrida desde el inicio
+        var candidate = false    // rechazado solo por haber otro trazo activo
         var stroke: Stroke? = null
         var erased: MutableList<Pair<Int, Stroke>>? = null
     }
@@ -311,14 +313,12 @@ class NoteView(context: Context, private val prefs: Prefs) : View(context) {
         }
         if (activeInk != -1) {
             val a = pointers[activeInk]
-            val swap = a != null && !trusted && !a.trusted &&
-                p.t0 - a.t0 < 200 &&
-                hypot(p.x0 - a.x0, p.y0 - a.y0) < 220 * dp &&
-                penScore(p) > penScore(a) + 16 * dp
-            if (swap) {
+            if (a != null && !trusted && shouldSwap(a, p, recent = p.t0 - a.t0 < 200)) {
                 rollback(a)
                 addRing(a.x0, a.y0, 14 * dp)
             } else {
+                // puede ser el lápiz; se vuelve a evaluar cuando se mueva
+                p.candidate = !trusted
                 addRing(x, y, ringR(major))
                 return
             }
@@ -327,21 +327,38 @@ class NoteView(context: Context, private val prefs: Prefs) : View(context) {
             addRing(x, y, ringR(major))
             return
         }
-        accept(p)
+        accept(p, x, y)
     }
 
-    private fun accept(p: Ptr) {
+    /** ¿El contacto nuevo [p] es más probablemente el lápiz que el trazo activo [a]? */
+    private fun shouldSwap(a: Ptr, p: Ptr, recent: Boolean): Boolean {
+        if (a.trusted) return false
+        if (penScore(p) <= penScore(a) + 8 * dp) return false
+        val still = a.travel < 6 * dp
+        val nearHand = nearPalm(a.x, a.y)
+        val closeStart = recent && hypot(p.x0 - a.x0, p.y0 - a.y0) < 220 * dp
+        return still || nearHand || closeStart
+    }
+
+    private fun nearPalm(x: Float, y: Float): Boolean {
+        for (z in palms.values) if (hypot(x - z.x, y - z.y) < z.r * 1.3f + 30 * dp) return true
+        return false
+    }
+
+    private fun accept(p: Ptr, sx: Float, sy: Float) {
+        p.candidate = false
         p.ink = true
         activeInk = p.id
         if (tool == TOOL_ERASER || p.stylusEraser) {
             p.erased = ArrayList()
-            eraseAt(p.x0, p.y0, p)
+            eraseAt(sx, sy, p)
         } else {
             val hl = tool == TOOL_HIGHLIGHTER
             val wpx = if (hl) widthDp * 6f * dp else widthDp * dp
             val c = if (hl && colorIndex == 0) Palette.HIGHLIGHT else colorIndex
             val s = Stroke(c, wpx / pageW, hl)
-            s.add(p.x0 / pageW, p.y0 / pageW, 1f)
+            s.add(sx / pageW, sy / pageW, 1f)
+            p.lastT = SystemClock.uptimeMillis()
             p.stroke = s
         }
         invalidate()
@@ -350,11 +367,12 @@ class NoteView(context: Context, private val prefs: Prefs) : View(context) {
     private fun onMove(p: Ptr, x: Float, y: Float, m: Float, major: Float, t: Long) {
         p.x = x
         p.y = y
+        p.travel = max(p.travel, hypot(x - p.x0, y - p.y0))
         if (p.palm) {
             palms[p.id]?.let {
                 it.x = x
                 it.y = y
-                it.r = max(it.r, ringR(major))
+                it.r = max(it.r, palmRadius(major))
             }
             return
         }
@@ -362,13 +380,31 @@ class NoteView(context: Context, private val prefs: Prefs) : View(context) {
             becomePalm(p, major)
             return
         }
-        if (!p.ink) return
+        if (!p.ink) {
+            if (p.candidate && p.travel > 6 * dp) promoteCandidate(p, x, y)
+            return
+        }
         if (p.erased != null) {
             eraseAt(x, y, p)
         } else {
             p.stroke?.let { addPoint(p, it, x, y, t) }
         }
     }
+
+    /** Un contacto rechazado por haber otro trazo activo empieza a escribir. */
+    private fun promoteCandidate(p: Ptr, x: Float, y: Float) {
+        val a = if (activeInk != -1) pointers[activeInk] else null
+        if (a != null) {
+            if (a.trusted || a.travel >= 6 * dp) return
+            if (!(nearPalm(a.x, a.y) || penScore(p) > penScore(a))) return
+            rollback(a)
+            addRing(a.x0, a.y0, 14 * dp)
+        }
+        if (palmZoneHit(x, y)) return
+        accept(p, x, y)
+    }
+
+    private fun palmRadius(major: Float) = (major / 2f).coerceIn(30 * dp, 70 * dp)
 
     private fun addPoint(p: Ptr, s: Stroke, x: Float, y: Float, t: Long) {
         val n = s.size
@@ -431,15 +467,15 @@ class NoteView(context: Context, private val prefs: Prefs) : View(context) {
     private fun becomePalm(p: Ptr, major: Float) {
         rollback(p)
         p.palm = true
-        val r = max(major / 2f, 30 * dp)
+        p.candidate = false
+        val r = palmRadius(major)
         palms[p.id] = Palm(p.x, p.y, r)
         addRing(p.x, p.y, r)
         if (activeInk != -1) {
             val a = pointers[activeInk]
-            if (a != null && !a.trusted &&
-                SystemClock.uptimeMillis() - a.t0 < 200 &&
-                hypot(a.x0 - p.x, a.y0 - p.y) < r * 1.1f + 20 * dp
-            ) {
+            val close = a != null && hypot(a.x - p.x, a.y - p.y) < r * 1.1f + 20 * dp
+            val young = a != null && SystemClock.uptimeMillis() - a.t0 < 200
+            if (a != null && !a.trusted && close && (young || a.travel < 6 * dp)) {
                 rollback(a)
                 addRing(a.x0, a.y0, 14 * dp)
             }
@@ -448,12 +484,18 @@ class NoteView(context: Context, private val prefs: Prefs) : View(context) {
     }
 
     private fun palmZoneHit(x: Float, y: Float): Boolean {
+        val mode = prefs.zoneMode
+        if (mode == 2) return false
         val zones = ArrayList<Palm>(palms.values)
-        lastPalm?.let { if (SystemClock.uptimeMillis() - lastPalmT < 450) zones.add(it) }
+        lastPalm?.let { if (SystemClock.uptimeMillis() - lastPalmT < 350) zones.add(it) }
+        val k = if (mode == 1) 0.6f else 1f
         for (z in zones) {
-            if (hypot(x - z.x, y - z.y) < z.r + 24 * dp) return true
-            val dx = if (prefs.rightHanded) x - z.x else z.x - x
-            if (dx > -z.r * 0.3f && y > z.y - z.r * 0.3f) return true
+            if (hypot(x - z.x, y - z.y) < (z.r * 0.9f + 12 * dp) * k) return true
+            if (mode == 0) {
+                // dedos que quedan hacia el lado de la mano y por debajo del centro de la palma
+                val dx = if (prefs.rightHanded) x - z.x else z.x - x
+                if (dx > 0f && y > z.y - z.r * 0.2f) return true
+            }
         }
         return false
     }

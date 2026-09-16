@@ -34,6 +34,11 @@ class Prefs(ctx: Context) {
         get() = sp.getInt("width", 1)
         set(v) { sp.edit().putInt("width", v).apply() }
 
+    /** 0 normal, 1 reducida, 2 desactivada */
+    var zoneMode: Int
+        get() = sp.getInt("zoneMode", 0)
+        set(v) { sp.edit().putInt("zoneMode", v).apply() }
+
     fun suggested(m: Int): Float = sp.getFloat("suggested_$m", -1f)
     fun setSuggested(m: Int, v: Float) { sp.edit().putFloat("suggested_$m", v).apply() }
 }

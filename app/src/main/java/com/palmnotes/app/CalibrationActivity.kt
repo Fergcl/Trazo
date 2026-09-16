@@ -48,6 +48,10 @@ class CalibrationActivity : Activity() {
     private lateinit var handL: TextView
     private lateinit var showRej: TextView
     private val metricBtns = ArrayList<TextView>()
+    private val zoneBtns = ArrayList<TextView>()
+    private lateinit var logView: TextView
+    private val logLines = ArrayDeque<String>()
+    private var lastMoveLog = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -78,6 +82,18 @@ class CalibrationActivity : Activity() {
         }, 8f)
         hint = label("", 15f)
         col.addGap(hint, 8f)
+        col.addGap(
+            label(
+                "Prueba clave: apoya la palma y, sin levantarla, escribe con el lápiz. " +
+                    "Deberías ver dos círculos y 2 contactos en el registro.",
+                14f, muted = true,
+            ),
+            4f,
+        )
+        logView = label("Registro de eventos vacío", 13f, muted = true).apply {
+            typeface = android.graphics.Typeface.MONOSPACE
+        }
+        col.addGap(logView, 8f)
 
         val measureRow = row()
         measPen = button("Medir punta del lápiz") { startMeasure(1) }
@@ -126,6 +142,19 @@ class CalibrationActivity : Activity() {
         handRow.addGap(handR)
         handRow.addGap(handL)
         col.addGap(handRow, 16f)
+
+        col.addGap(label("Zona ignorada alrededor de la palma", 16f, bold = true), 6f)
+        val zoneRow = row()
+        listOf("Normal", "Reducida", "Desactivada").forEachIndexed { i, n ->
+            val b = button(n) { prefs.zoneMode = i; refresh() }
+            zoneBtns.add(b)
+            zoneRow.addGap(b, 4f)
+        }
+        col.addGap(zoneRow, 4f)
+        col.addGap(
+            label("Si el lápiz no escribe cerca de la mano apoyada, prueba Reducida o Desactivada.", 14f, muted = true),
+            16f,
+        )
 
         showRej = button("Mostrar toques ignorados en el cuaderno") {
             prefs.showRejected = !prefs.showRejected
@@ -185,7 +214,40 @@ class CalibrationActivity : Activity() {
         }
     }
 
+    private fun logEvent(ev: MotionEvent) {
+        val a = ev.actionMasked
+        if (a == MotionEvent.ACTION_MOVE) {
+            val now = ev.eventTime
+            if (now - lastMoveLog < 400) return
+            lastMoveLog = now
+        }
+        val name = when (a) {
+            MotionEvent.ACTION_DOWN -> "DOWN"
+            MotionEvent.ACTION_POINTER_DOWN -> "POINTER_DOWN"
+            MotionEvent.ACTION_MOVE -> "MOVE"
+            MotionEvent.ACTION_POINTER_UP -> "POINTER_UP"
+            MotionEvent.ACTION_UP -> "UP"
+            MotionEvent.ACTION_CANCEL -> "CANCEL"
+            else -> "otro($a)"
+        }
+        val cancelled = android.os.Build.VERSION.SDK_INT >= 33 &&
+            (ev.flags and MotionEvent.FLAG_CANCELED) != 0
+        val tools = (0 until ev.pointerCount).joinToString(" ") { i ->
+            val t = when (ev.getToolType(i)) {
+                MotionEvent.TOOL_TYPE_STYLUS -> "L"
+                MotionEvent.TOOL_TYPE_FINGER -> "D"
+                else -> "?"
+            }
+            t + String.format(Locale.getDefault(), "%.0f", Metrics.read(ev, i, -1, Metrics.TOUCH))
+        }
+        val line = "$name  contactos=${ev.pointerCount}  [$tools]" + if (cancelled) "  CANCELADO" else ""
+        logLines.addFirst(line)
+        while (logLines.size > 8) logLines.removeLast()
+        logView.text = logLines.joinToString("\n")
+    }
+
     private fun handle(ev: MotionEvent) {
+        logEvent(ev)
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 gestureMax.fill(0f)
@@ -397,6 +459,7 @@ class CalibrationActivity : Activity() {
         pill(handR, prefs.rightHanded)
         pill(handL, !prefs.rightHanded)
         pill(showRej, prefs.showRejected)
+        zoneBtns.forEachIndexed { i, b -> pill(b, i == prefs.zoneMode) }
         measPen.visibility = if (mode == 0) View.VISIBLE else View.GONE
         measPalm.visibility = if (mode == 0) View.VISIBLE else View.GONE
         measStop.visibility = if (mode != 0) View.VISIBLE else View.GONE
