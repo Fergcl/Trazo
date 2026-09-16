@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="paper">#1C2023</color>
+    <color name="rule">#2F3A37</color>
+    <color name="graphite">#E6ECE8</color>
+    <color name="ink">#7FA2FF</color>
+    <color name="palm">#FF6B73</color>
+    <color name="chrome">#14171A</color>
+    <color name="chrome_2">#2F3639</color>
+    <color name="text">#E6ECE8</color>
+    <color name="muted">#9AA7A2</color>
+    <color name="btn">#23282B</color>
+    <color name="btn_on">#E6ECE8</color>
+    <color name="btn_on_text">#14171A</color>
+</resources>

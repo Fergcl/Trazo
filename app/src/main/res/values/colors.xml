@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="paper">#F2F5F1</color>
+    <color name="rule">#C9D6CF</color>
+    <color name="graphite">#262B2F</color>
+    <color name="ink">#1F4FD1</color>
+    <color name="palm">#D33F49</color>
+    <color name="chrome">#E3E9E5</color>
+    <color name="chrome_2">#C7D1CC</color>
+    <color name="text">#262B2F</color>
+    <color name="muted">#5E6A66</color>
+    <color name="btn">#FFFFFF</color>
+    <color name="btn_on">#262B2F</color>
+    <color name="btn_on_text">#F2F5F1</color>
+    <color name="icon_bg">#1F4FD1</color>
+</resources>
