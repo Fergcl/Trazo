@@ -67,7 +67,7 @@ Para confirmarlo a nivel de kernel, sin root (activa antes la depuración USB):
 
 ```bash
 adb shell "getevent -pl | grep -E 'add device|name:|ABS_MT_POSITION_X'"      # busca la pantalla táctil y sustituye eventN por el evento correcto, en mi caso era event6
-adb shell "timeout 40 getevent -lt /dev/input/eventN > /sdcard/Download/touchs.txt"
+adb shell "timeout 40 getevent -lt /dev/input/eventN > /sdcard/Download/Touchs.txt"
 adb pull /sdcard/Download/Touchs.txt
 ```
 
